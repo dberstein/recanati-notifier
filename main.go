@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/dberstein/recanati-notifier/delivery"
 	httplog "github.com/dberstein/recanati-notifier/httplog"
 	"github.com/dberstein/recanati-notifier/medium"
 	"github.com/dberstein/recanati-notifier/notification"
+	"github.com/dberstein/recanati-notifier/queue"
 	"github.com/dberstein/recanati-notifier/user"
 
 	"github.com/fatih/color"
@@ -20,7 +22,6 @@ import (
 )
 
 var users []user.User
-var queue []*notification.Notification
 
 func init() {
 	users = []user.User{
@@ -30,7 +31,7 @@ func init() {
 	}
 }
 
-func setupRouter() *http.ServeMux {
+func setupRouter(q *queue.Queue) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// Update user notification preferences (which channels to use and frequency)
@@ -39,22 +40,20 @@ func setupRouter() *http.ServeMux {
 
 	// Send a notification to users based on their preferences.
 	mux.HandleFunc("POST /notifications", func(w http.ResponseWriter, r *http.Request) {
-		// INSERT INTO notifications (status, type, body) VALUES (?,?,?)", notification.TypeAlert, content"
 		content, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
-		nr := &notification.NotificationRequest{}
+		nr := &notification.Request{}
 		err = json.Unmarshal(content, nr)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		}
 
-		n := notification.NewNotification(nr.Type, nr.Content)
-		fmt.Printf("%s", n)
+		msg := notification.New(nr.Type, &nr.Content)
 		for _, u := range users {
-			u.Notify(n)
+			q.Push(delivery.New(&u, msg))
 		}
 	})
 
@@ -70,6 +69,17 @@ func main() {
 	addr := flag.String("addr", ":8080", "Listen address")
 	flag.Parse()
 
+	q := queue.NewQueue()
+	go func() {
+		for {
+			time.Sleep(25 * time.Millisecond)
+			d := q.Pop()
+			if d != nil {
+				q.Notify(d.User, d.Message)
+			}
+		}
+	}()
+
 	srv := &http.Server{
 		Addr:              *addr,
 		IdleTimeout:       0,
@@ -77,7 +87,7 @@ func main() {
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		MaxHeaderBytes:    1 << 20, // 1MB
-		Handler:           httplog.LogRequest(setupRouter()),
+		Handler:           httplog.LogRequest(setupRouter(q)),
 	}
 
 	fmt.Println(color.HiGreenString("Listening:"), *addr)

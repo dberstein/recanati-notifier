@@ -1,38 +1,46 @@
 package medium
 
-import "github.com/dberstein/recanati-notifier/notification"
+import (
+	"github.com/dberstein/recanati-notifier/notification"
+)
 
-const MaxRetries int = 3
+const PctSuccess int = 5
+const MaxRetries int = 1
 
 type MediumStatus int
 
 const (
-	StatusSuccess MediumStatus = iota
-	StatusPending
+	StatusPending MediumStatus = iota
+	StatusSuccess
 	StatusRetry
 	StatusError
 )
 
 type Medium interface {
-	Notify(*notification.Notification) error
-	RetryStatus() bool
+	Notify(*notification.Message) error
+	Retry() bool
 	SetStatus(MediumStatus)
+	GetStatus() MediumStatus
 	String() string
 }
 
 type MediumImpl struct {
 	status  MediumStatus
-	retries int
+	retried int
 }
 
 func (m *MediumImpl) SetStatus(s MediumStatus) {
 	m.status = s
 }
 
-func (m *MediumImpl) RetryStatus() bool {
-	if m.retries < MaxRetries {
+func (m *MediumImpl) GetStatus() MediumStatus {
+	return m.status
+}
+
+func (m *MediumImpl) Retry() bool {
+	if m.retried <= MaxRetries {
 		m.status = StatusRetry
-		m.retries++
+		m.retried++
 		return true
 	}
 	m.status = StatusError

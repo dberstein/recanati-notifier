@@ -18,43 +18,23 @@ func (nt NotificationType) EnumIndex() int {
 	return int(nt)
 }
 
-type NotificationStatus int
-
-const (
-	StatusPending NotificationStatus = iota
-	StatusSent
-	StatusRetrying
-	StatusFailed
-)
-
-func (ns NotificationStatus) String() string {
-	return [...]string{"Pending", "Sent", "Retrying", "Failed"}[ns]
-}
-
-func (ns NotificationStatus) EnumIndex() int {
-	return int(ns)
-}
-
-type NotificationRequest struct {
+type Request struct {
 	Type    NotificationType `json:"type"`
 	Content string           `json:"content"`
 }
 
-type Notification struct {
+type Message struct {
 	Type    NotificationType
-	Status  NotificationStatus
-	Retries int
-	Content string
+	Content *string
 }
 
-func NewNotification(nt NotificationType, content string) *Notification {
-	return &Notification{
+func New(nt NotificationType, content *string) *Message {
+	return &Message{
 		Type:    nt,
-		Status:  StatusPending,
 		Content: content,
 	}
 }
 
-func (n *Notification) String() string {
-	return fmt.Sprintf("%s (%s): %s\n", n.Type, n.Status, n.Content)
+func (n *Message) String() string {
+	return fmt.Sprintf("* %s:\n%s\n", n.Type, *n.Content)
 }
