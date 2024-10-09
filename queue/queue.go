@@ -41,17 +41,17 @@ func (self *Queue) Pop() *delivery.Delivery {
 
 func (self *Queue) Notify(u *user.User, msg *notification.Message) {
 	for _, m := range u.Mediums {
-		d := delivery.New(u, msg)
-		var colorPrint = color.GreenString
 		var logMsg string
+		var colorPrint = color.GreenString
+
 		if err := m.Notify(msg); err != nil {
 			colorPrint = color.RedString
-			m.SetStatus(medium.StatusRetry)
-			if m.Retry() {
-				self.Push(d)
-			}
-
 			logMsg = err.Error()
+			m.SetStatus(medium.StatusRetry)
+
+			if m.Retry() {
+				self.Push(delivery.New(u, msg))
+			}
 		} else {
 			logMsg = "success"
 			m.SetStatus(medium.StatusSuccess)
