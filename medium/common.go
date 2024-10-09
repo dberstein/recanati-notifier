@@ -4,7 +4,7 @@ import (
 	"github.com/dberstein/recanati-notifier/notification"
 )
 
-const PctSuccess int = 5
+const PctSuccess int = 15
 const MaxRetries int = 1
 
 type MediumStatus int
@@ -38,7 +38,7 @@ func (m *MediumImpl) GetStatus() MediumStatus {
 }
 
 func (m *MediumImpl) Retry() bool {
-	if m.retried <= MaxRetries {
+	if m.retried < MaxRetries {
 		m.status = StatusRetry
 		m.retried++
 		return true

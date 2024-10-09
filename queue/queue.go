@@ -14,15 +14,6 @@ import (
 
 var lock sync.RWMutex
 
-// type Item struct {
-// 	U *user.User
-// 	N *notification.Message
-// }
-
-// func NewItem(u *user.User, n *notification.Message) *Item {
-// 	return &Item{U: u, N: n}
-// }
-
 type Queue []*delivery.Delivery
 
 func NewQueue() *Queue {
@@ -44,24 +35,14 @@ func (self *Queue) Pop() *delivery.Delivery {
 	var el *delivery.Delivery
 	if len(h) > 0 {
 		el, *self = h[0], h[1:]
-		return el
 	}
-	return nil
+	return el
 }
 
 func (self *Queue) Notify(u *user.User, msg *notification.Message) {
 	for _, m := range u.Mediums {
-		// status := m.GetStatus()
-		// if status == medium.StatusSuccess {
-		// 	fmt.Println(color.GreenString("*"))
-		// 	continue
-		// } else if status == medium.StatusError {
-		// 	fmt.Println(color.YellowString("*"))
-		// 	continue
-		// }
-
 		d := delivery.New(u, msg)
-		var colorPrint func(string, ...interface{}) string = color.GreenString
+		var colorPrint = color.GreenString
 		var logMsg string
 		if err := m.Notify(msg); err != nil {
 			colorPrint = color.RedString
