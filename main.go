@@ -17,8 +17,6 @@ import (
 	"github.com/dberstein/recanati-notifier/user"
 
 	"github.com/fatih/color"
-
-	_ "github.com/mattn/go-sqlite3" // Import driver (blank import for registration)
 )
 
 var users []user.User
@@ -43,12 +41,14 @@ func setupRouter(q *queue.Queue) *http.ServeMux {
 		content, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		nr := &notification.Request{}
 		err = json.Unmarshal(content, nr)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 
 		msg := notification.New(nr.Type, &nr.Content)
