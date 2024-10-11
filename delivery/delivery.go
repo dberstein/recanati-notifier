@@ -2,6 +2,8 @@ package delivery
 
 import (
 	"fmt"
+	"math/rand/v2"
+	"time"
 
 	"github.com/dberstein/recanati-notifier/medium"
 	"github.com/dberstein/recanati-notifier/notification"
@@ -21,6 +23,7 @@ func New(u *user.User, msg *notification.Message) *Delivery {
 func (d *Delivery) Notify(ch chan *Delivery) {
 	var logMsg string
 	for _, m := range d.User.Mediums {
+		time.Sleep(time.Duration(rand.IntN(500) * int(time.Millisecond)))
 		var colorPrint = color.GreenString
 		if err := m.Notify(d.Message); err != nil {
 			colorPrint = color.RedString
@@ -28,9 +31,9 @@ func (d *Delivery) Notify(ch chan *Delivery) {
 			m.SetStatus(medium.StatusRetry)
 
 			if m.Retry() {
-				go func() {
-					ch <- d
-				}()
+				go func(dd *Delivery) {
+					ch <- dd
+				}(d)
 			}
 		} else {
 			logMsg = "success"
