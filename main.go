@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"time"
@@ -38,23 +37,25 @@ func setupRouter(q *queue.Queue) *http.ServeMux {
 
 	// Send a notification to users based on their preferences.
 	mux.HandleFunc("POST /notifications", func(w http.ResponseWriter, r *http.Request) {
-		content, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
 		nr := &notification.Request{}
-		err = json.Unmarshal(content, nr)
+		err := json.NewDecoder(r.Body).Decode(nr)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
+		if nr.Content == "" {
+			http.Error(w, "missing content", http.StatusBadRequest)
+			return
+		}
+
+		fmt.Println("*", nr.String())
 		msg := notification.New(nr.Type, &nr.Content)
 		for _, u := range users {
 			q.Push(delivery.New(&u, msg))
 		}
+
+		w.WriteHeader(http.StatusCreated)
 	})
 
 	// Retrieve the status of sent notifications (success, failure, retry attempts).

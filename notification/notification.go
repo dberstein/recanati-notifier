@@ -23,6 +23,10 @@ type Request struct {
 	Content string           `json:"content"`
 }
 
+func (r *Request) String() string {
+	return fmt.Sprintf("%s: %s", r.Type, r.Content)
+}
+
 type Message struct {
 	Type    NotificationType
 	Content *string
