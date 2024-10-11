@@ -5,7 +5,7 @@ import (
 )
 
 const PctSuccess int = 15
-const MaxRetries int = 1
+const MaxRetries int = 3
 
 type MediumStatus int
 

@@ -12,7 +12,6 @@ import (
 	httplog "github.com/dberstein/recanati-notifier/httplog"
 	"github.com/dberstein/recanati-notifier/medium"
 	"github.com/dberstein/recanati-notifier/notification"
-	"github.com/dberstein/recanati-notifier/queue"
 	"github.com/dberstein/recanati-notifier/user"
 
 	"github.com/fatih/color"
@@ -28,7 +27,7 @@ func init() {
 	}
 }
 
-func setupRouter(q *queue.Queue) *http.ServeMux {
+func setupRouter(ch chan *delivery.Delivery) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// Update user notification preferences (which channels to use and frequency)
@@ -52,7 +51,7 @@ func setupRouter(q *queue.Queue) *http.ServeMux {
 		fmt.Println("*", nr.String())
 		msg := notification.New(nr.Type, &nr.Content)
 		for _, u := range users {
-			q.Push(delivery.New(&u, msg))
+			ch <- delivery.New(&u, msg)
 		}
 
 		w.WriteHeader(http.StatusCreated)
@@ -70,14 +69,12 @@ func main() {
 	addr := flag.String("addr", ":8080", "Listen address")
 	flag.Parse()
 
-	q := queue.NewQueue()
+	// q := queue.NewQueue()
+	ch := make(chan *delivery.Delivery)
 	go func() {
 		for {
-			time.Sleep(25 * time.Millisecond)
-			d := q.Pop()
-			if d != nil {
-				q.Notify(d.User, d.Message)
-			}
+			d := <-ch
+			d.Notify(ch)
 		}
 	}()
 
@@ -88,7 +85,7 @@ func main() {
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		MaxHeaderBytes:    1 << 20, // 1MB
-		Handler:           httplog.LogRequest(setupRouter(q)),
+		Handler:           httplog.LogRequest(setupRouter(ch)),
 	}
 
 	fmt.Println(color.HiGreenString("Listening:"), *addr)
