@@ -27,11 +27,11 @@ func (d *Delivery) Notify(ch chan *Delivery) {
 			logMsg = err.Error()
 			m.SetStatus(medium.StatusRetry)
 
-			if m.Retry() {
-				go func(dd *Delivery) {
-					ch <- dd
-				}(d)
-			}
+			go func(msg medium.Medium, c chan *Delivery, dd *Delivery) {
+				if msg.Retry() {
+					c <- dd
+				}
+			}(m, ch, d)
 		} else {
 			logMsg = "success"
 			m.SetStatus(medium.StatusSuccess)

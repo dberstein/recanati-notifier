@@ -26,7 +26,7 @@ func (m SMS) String() string {
 func (m SMS) Notify(n *notification.Message) error {
 	fmt.Print(color.YellowString(m.String()))
 	time.Sleep(time.Duration(rand.IntN(500) * int(time.Millisecond)))
-	if rand.IntN(100) > 100-PctSuccess {
+	if rand.IntN(100) > 100-PctError {
 		return errors.New("SMS error")
 	}
 	return nil
