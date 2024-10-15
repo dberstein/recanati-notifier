@@ -2,6 +2,24 @@ package notification
 
 import "fmt"
 
+type Message struct {
+	Type    NotificationType
+	Subject string
+	Body    string
+}
+
+func New(nt NotificationType, subject string, body string) *Message {
+	return &Message{
+		Type:    nt,
+		Subject: subject,
+		Body:    body,
+	}
+}
+
+func (m *Message) String() string {
+	return fmt.Sprintf("* (%s) %s: %s", m.Type, m.Subject, m.Body)
+}
+
 type NotificationType int
 
 const (
@@ -20,25 +38,10 @@ func (nt NotificationType) EnumIndex() int {
 
 type Request struct {
 	Type    NotificationType `json:"type"`
-	Content string           `json:"content"`
+	Subject string           `json:"subject"`
+	Body    string           `json:"body"`
 }
 
 func (r *Request) String() string {
-	return fmt.Sprintf("%s: %s", r.Type, r.Content)
-}
-
-type Message struct {
-	Type    NotificationType
-	Content *string
-}
-
-func New(nt NotificationType, content *string) *Message {
-	return &Message{
-		Type:    nt,
-		Content: content,
-	}
-}
-
-func (n *Message) String() string {
-	return fmt.Sprintf("* %s:\n%s\n", n.Type, *n.Content)
+	return fmt.Sprintf("(%s) %s: %s", r.Type, r.Subject, r.Body)
 }
