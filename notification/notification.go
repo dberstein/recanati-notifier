@@ -45,3 +45,7 @@ type Request struct {
 func (r *Request) String() string {
 	return fmt.Sprintf("(%s) %s: %s", r.Type, r.Subject, r.Body)
 }
+
+type Notifier interface {
+	Notify(string, string) error
+}

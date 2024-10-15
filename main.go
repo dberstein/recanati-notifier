@@ -10,7 +10,9 @@ import (
 	"time"
 
 	// "github.com/dberstein/recanati-notifier/delivery"
+
 	httplog "github.com/dberstein/recanati-notifier/httplog"
+
 	// "github.com/dberstein/recanati-notifier/medium"
 	"github.com/dberstein/recanati-notifier/notification"
 	// "github.com/dberstein/recanati-notifier/user"
@@ -102,6 +104,7 @@ type ListItem struct {
 	Subject string `json:"subject"`
 	Body    string `json:"body"`
 	Dtype   string `json:"dtype"`
+	Uid     int    `json:"uid"`
 	Target  string `json:"target"`
 	Status  bool   `json:"status"`
 }
@@ -178,7 +181,7 @@ func setupRouter(dsn string) (*http.ServeMux, *sql.DB) {
 	// Retrieve the status of sent notifications (success, failure, retry attempts).
 	mux.HandleFunc("GET /notifications/status", func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(`
-	SELECT n.id, n.type, n.subject, n.body, d.type AS dtype, d.target, d.status
+	SELECT n.id, n.type, n.subject, n.body, d.type AS dtype, d.uid, d.target, d.status
 		FROM delivery d
 INNER JOIN notifications n ON n.id = d.nid
 		`, false)
@@ -189,7 +192,7 @@ INNER JOIN notifications n ON n.id = d.nid
 		list := []ListItem{}
 		for rows.Next() {
 			row := ListItem{}
-			err = rows.Scan(&row.Id, &row.Type, &row.Subject, &row.Body, &row.Dtype, &row.Target, &row.Status)
+			err = rows.Scan(&row.Id, &row.Type, &row.Subject, &row.Body, &row.Dtype, &row.Uid, &row.Target, &row.Status)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -229,17 +232,19 @@ func main() {
 	}
 
 	type Delivery struct {
-		Nid, Uid    int
-		Typ, Target string
+		Nid, Uid                   int
+		Typ, Target, Subject, Body string
 	}
 
 	go func() {
 		last := 0
 		for {
-			rows, err := db.Query(
-				"SELECT rowid, nid, uid, type, target FROM delivery WHERE status = ? AND rowid > ? ORDER BY ts",
-				false, last,
-			)
+			rows, err := db.Query(`
+	SELECT d.rowid, d.nid, d.uid, d.type, d.target, n.subject, n.body
+	  FROM delivery d
+INNER JOIN notifications n ON n.id = d.nid
+	 WHERE d.status = ? ORDER BY n.ts
+			`, false)
 			if err != nil {
 				fmt.Println(err)
 				continue
@@ -248,13 +253,26 @@ func main() {
 			done := []Delivery{}
 			d := Delivery{}
 			for rows.Next() {
-				err := rows.Scan(&last, &d.Nid, &d.Uid, &d.Typ, &d.Target)
+				err := rows.Scan(&last, &d.Nid, &d.Uid, &d.Typ, &d.Target, &d.Subject, &d.Body)
 				if err != nil {
 					panic(err)
 				}
 
-				// TODO: send notification message
-				fmt.Printf("~ %+v\n", d)
+				// Send notification using relevant notifier...
+				var notifier notification.Notifier
+				switch d.Typ {
+				case "email":
+					notifier = &notification.Email{To: d.Target}
+				case "sms":
+					notifier = &notification.SMS{To: d.Target}
+				}
+
+				err = notifier.Notify(d.Subject, d.Body)
+				if err != nil {
+					log.Println("error:", err.Error())
+					continue
+				}
+
 				done = append(done, d)
 			}
 			rows.Close()
