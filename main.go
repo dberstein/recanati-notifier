@@ -107,6 +107,7 @@ type ListItem struct {
 	Uid     int    `json:"uid"`
 	Target  string `json:"target"`
 	Status  bool   `json:"status"`
+	Attempt int    `json:"attempt"`
 }
 
 func insertDeliveries(notitifactionId int64) error {
@@ -181,7 +182,7 @@ func setupRouter(dsn string) (*http.ServeMux, *sql.DB) {
 	// Retrieve the status of sent notifications (success, failure, retry attempts).
 	mux.HandleFunc("GET /notifications/status", func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(`
-	SELECT n.id, n.type, n.subject, n.body, d.type AS dtype, d.uid, d.target, d.status
+	SELECT n.id, n.type, n.subject, n.body, d.type AS dtype, d.uid, d.target, d.status, d.attempt
 		FROM delivery d
 INNER JOIN notifications n ON n.id = d.nid
 		`, false)
@@ -192,7 +193,7 @@ INNER JOIN notifications n ON n.id = d.nid
 		list := []ListItem{}
 		for rows.Next() {
 			row := ListItem{}
-			err = rows.Scan(&row.Id, &row.Type, &row.Subject, &row.Body, &row.Dtype, &row.Uid, &row.Target, &row.Status)
+			err = rows.Scan(&row.Id, &row.Type, &row.Subject, &row.Body, &row.Dtype, &row.Uid, &row.Target, &row.Status, &row.Attempt)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -234,13 +235,14 @@ func main() {
 	type Delivery struct {
 		Nid, Uid                   int
 		Typ, Target, Subject, Body string
+		Attempt                    int
 	}
 
 	go func() {
 		last := 0
 		for {
 			rows, err := db.Query(`
-	SELECT d.rowid, d.nid, d.uid, d.type, d.target, n.subject, n.body
+	SELECT d.rowid, d.nid, d.uid, d.type, d.target, n.subject, n.body, d.attempt
 	  FROM delivery d
 INNER JOIN notifications n ON n.id = d.nid
 	 WHERE d.status = ? ORDER BY n.ts
@@ -253,7 +255,7 @@ INNER JOIN notifications n ON n.id = d.nid
 			done := []Delivery{}
 			d := Delivery{}
 			for rows.Next() {
-				err := rows.Scan(&last, &d.Nid, &d.Uid, &d.Typ, &d.Target, &d.Subject, &d.Body)
+				err := rows.Scan(&last, &d.Nid, &d.Uid, &d.Typ, &d.Target, &d.Subject, &d.Body, &d.Attempt)
 				if err != nil {
 					panic(err)
 				}
@@ -267,19 +269,20 @@ INNER JOIN notifications n ON n.id = d.nid
 					notifier = &notification.SMS{To: d.Target}
 				}
 
-				err = notifier.Notify(d.Subject, d.Body)
-				if err != nil {
-					log.Println("error:", err.Error())
-					continue
+				if notifier != nil {
+					err = notifier.Notify(d.Subject, d.Body)
+					if err != nil {
+						log.Println("error:", err.Error())
+						continue
+					}
+					done = append(done, d)
 				}
-
-				done = append(done, d)
 			}
 			rows.Close()
 
 			time.Sleep(100 * time.Millisecond)
 			for _, d := range done {
-				_, err := db.Exec("UPDATE delivery SET status = ? WHERE nid = ? AND uid = ? AND type = ? AND target = ?", true, d.Nid, d.Uid, d.Typ, d.Target)
+				_, err := db.Exec("UPDATE delivery SET status = ?, attempt = ?+1 WHERE nid = ? AND uid = ? AND type = ? AND target = ?", true, d.Attempt, d.Nid, d.Uid, d.Typ, d.Target)
 				if err != nil {
 					panic(err)
 				}
