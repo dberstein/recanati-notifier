@@ -5,14 +5,16 @@ import (
 	"log"
 	"math/rand/v2"
 	"time"
+
+	"github.com/fatih/color"
 )
 
 type SMS struct {
 	To string
 }
 
-func (s *SMS) Notify(subject, body string) error {
-	log.Println("sms", s.To, subject, body)
+func (s *SMS) Notify(typ NotificationType, subject, body string) error {
+	log.Println(color.GreenString("SMS"), typ.String(), s.To, subject, body)
 	time.Sleep(time.Duration(rand.IntN(1000) * int(time.Millisecond)))
 	if rand.IntN(100) > 90 {
 		return errors.New("error sending sms")

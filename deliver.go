@@ -2,58 +2,65 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
 	"log"
 	"time"
 
 	"github.com/dberstein/recanati-notifier/notification"
+
+	"github.com/fatih/color"
 )
 
 type Delivery struct {
-	Nid     int    `json:"nid"`
-	Uid     int    `json/:"uid"`
+	Id      int    `json:"id"`
+	Ntype   int    `json:"ntype"`
+	Type    string `json:"type"`
 	Attempt int    `json:"attempt"`
-	Typ     string `json:"type"`
 	Target  string `json:"target"`
 	Subject string `json:"subject"`
 	Body    string `json:"body"`
 }
 
 func deliverInLoop(db *sql.DB) {
-	last := 0
-	for {
-		rows, err := db.Query(`
-SELECT d.rowid,
-   d.nid,
-   d.uid,
-   d.type,
-   d.target,
-   n.subject,
-   n.body,
-   d.attempt
-FROM delivery d
-INNER JOIN notifications n ON n.id = d.nid
-WHERE d.status = ?
-AND d.attempt < 3
-ORDER BY n.ts
-		`, false)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
+	maxFailedAttempts := 3
 
+	stmtDeliverSelect, err := db.Prepare(`
+	SELECT d.id,
+		   n.type AS ntype,
+		   d.type,
+		   d.attempt,
+		   d.target,
+		   n.subject,
+		   n.body
+	FROM delivery d
+	INNER JOIN notifications n ON n.id = d.nid
+	WHERE d.status = ?
+	  AND d.attempt < ?
+	ORDER BY n.ts
+			`)
+	if err != nil {
+		panic(err)
+	}
+
+	for {
 		done := []*Delivery{}
 		retry := []*Delivery{}
+
+		rows, err := stmtDeliverSelect.Query(false, maxFailedAttempts)
+		if err != nil {
+			panic(err)
+		}
+
 		d := Delivery{}
 		for rows.Next() {
-			err := rows.Scan(&last, &d.Nid, &d.Uid, &d.Typ, &d.Target, &d.Subject, &d.Body, &d.Attempt)
+			err := rows.Scan(&d.Id, &d.Ntype, &d.Type, &d.Attempt,
+				&d.Target, &d.Subject, &d.Body)
 			if err != nil {
 				panic(err)
 			}
 
 			// Send notification using relevant notifier...
 			var notifier notification.Notifier
-			switch d.Typ {
+			switch d.Type {
 			case "email":
 				notifier = &notification.Email{To: d.Target}
 			case "sms":
@@ -61,45 +68,50 @@ ORDER BY n.ts
 			}
 
 			if notifier != nil {
-				err = notifier.Notify(d.Subject, d.Body)
+				err = notifier.Notify(notification.NotificationType(d.Ntype), d.Subject, d.Body)
 				if err != nil {
-					log.Println("error:", err.Error())
+					log.Println(color.HiRedString("error:"), err.Error())
 					retry = append(retry, &d)
 					continue
 				}
-				done = append(done, &d)
 			}
+			done = append(done, &d)
 		}
 		rows.Close()
 
-		stmtUpdate, err := db.Prepare(`
-UPDATE delivery
-SET status = ?,
-attempt = ?
-WHERE nid = ?
-AND uid = ?
-AND TYPE = ?
-AND target = ?
-		`)
+		time.Sleep(500 * time.Millisecond)
+
+		tx, err := db.Begin()
 		if err != nil {
 			panic(err)
 		}
-
-		time.Sleep(100 * time.Millisecond)
 		for _, r := range retry {
 			r.Attempt++
-			_, err := stmtUpdate.Exec(false, d.Attempt, d.Nid, d.Uid, d.Typ, d.Target)
+
+			_, err = tx.Exec(`
+UPDATE delivery
+SET status = ?,
+	attempt = attempt + 1
+WHERE id = ?;
+			`, false, d.Id)
 			if err != nil {
 				panic(err)
 			}
 		}
-		time.Sleep(100 * time.Millisecond)
+
 		for _, d := range done {
-			d.Attempt++
-			_, err := stmtUpdate.Exec(true, d.Attempt, d.Nid, d.Uid, d.Typ, d.Target)
+			// d.Attempt++
+
+			_, err = tx.Exec(`
+UPDATE delivery
+SET status = ?,
+	attempt = attempt + 1
+WHERE id = ?;
+			`, true, d.Id)
 			if err != nil {
 				panic(err)
 			}
 		}
+		tx.Commit()
 	}
 }

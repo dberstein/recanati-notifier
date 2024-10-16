@@ -47,5 +47,5 @@ func (r *Request) String() string {
 }
 
 type Notifier interface {
-	Notify(string, string) error
+	Notify(NotificationType, string, string) error
 }

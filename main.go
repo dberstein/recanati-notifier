@@ -17,18 +17,6 @@ import (
 
 var db *sql.DB
 
-type ListItem struct {
-	Id      int    `json:"notification_id"`
-	Type    int    `json:"type"`
-	Subject string `json:"subject"`
-	Body    string `json:"body"`
-	Dtype   string `json:"dtype"`
-	Uid     int    `json:"uid"`
-	Target  string `json:"target"`
-	Status  bool   `json:"status"`
-	Attempt int    `json:"attempt"`
-}
-
 func setupRouter(dsn string) (*http.ServeMux, *sql.DB) {
 	db = NewDb(dsn)
 	mux := http.NewServeMux()
@@ -92,9 +80,21 @@ SELECT n.id,
        d.attempt
 FROM delivery d
 INNER JOIN notifications n ON n.id = d.nid
-		`, false)
+		`)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		type ListItem struct {
+			Id      int    `json:"notification_id"`
+			Type    int    `json:"type"`
+			Subject string `json:"subject"`
+			Body    string `json:"body"`
+			Dtype   string `json:"dtype"`
+			Uid     int    `json:"uid"`
+			Target  string `json:"target"`
+			Status  bool   `json:"status"`
+			Attempt int    `json:"attempt"`
 		}
 
 		list := []ListItem{}
