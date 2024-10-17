@@ -139,7 +139,7 @@ func main() {
 		Handler:           entryPoint,
 	}
 
-	go deliverInLoop(db)
+	go deliverInLoop(db, 3)
 
 	fmt.Println(color.HiGreenString("Listening:"), *addr)
 	log.Fatal(srv.ListenAndServe())

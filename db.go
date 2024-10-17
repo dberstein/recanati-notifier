@@ -70,15 +70,16 @@ END;
 
 -- Create view that relates notifications with deliveries
 CREATE VIEW IF NOT EXISTS deliveries AS
-SELECT n.id,
-       n.type,
+SELECT d.id,
+       n.type AS ntype,
+       d.type,
+       d.attempt,
+       d.target,
        n.subject,
        n.body,
-       d.type AS dtype,
+	   n.id AS nid,
        d.uid,
-       d.target,
-       d.status,
-       d.attempt
+       d.status
 FROM delivery d
 INNER JOIN notifications n ON n.id = d.nid;
 

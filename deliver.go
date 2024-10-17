@@ -18,100 +18,95 @@ type Delivery struct {
 	Target  string `json:"target"`
 	Subject string `json:"subject"`
 	Body    string `json:"body"`
+	Status  bool   `json:"status"`
 }
 
-func deliverInLoop(db *sql.DB) {
-	maxFailedAttempts := 3
-
+func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 	stmtDeliverSelect, err := db.Prepare(`
-	SELECT d.id,
-		   n.type AS ntype,
+    SELECT d.id,
+		   d.ntype,
 		   d.type,
 		   d.attempt,
 		   d.target,
-		   n.subject,
-		   n.body
-	FROM delivery d
-	INNER JOIN notifications n ON n.id = d.nid
-	WHERE d.status = ?
-	  AND d.attempt < ?
-	ORDER BY n.ts
-			`)
+		   d.subject,
+		   d.body,
+		   d.status
+      FROM deliveries d
+     WHERE d.status = ?
+       AND d.attempt < ?`)
 	if err != nil {
 		panic(err)
 	}
 
 	for {
-		done := []*Delivery{}
-		retry := []*Delivery{}
-
 		rows, err := stmtDeliverSelect.Query(false, maxFailedAttempts)
 		if err != nil {
-			panic(err)
+			log.Println("ERROR", err)
+			continue
 		}
 
-		d := Delivery{}
+		// Process item and store as `done` or `retry`...
+		d, done, retry := Delivery{}, []*Delivery{}, []*Delivery{}
 		for rows.Next() {
-			err := rows.Scan(&d.Id, &d.Ntype, &d.Type, &d.Attempt,
-				&d.Target, &d.Subject, &d.Body)
+			err := rows.Scan(&d.Id, &d.Ntype, &d.Type, &d.Attempt, &d.Target, &d.Subject, &d.Body, &d.Status)
 			if err != nil {
-				panic(err)
+				log.Println("ERROR", err)
+				continue
 			}
 
-			// Send notification using relevant notifier...
-			var notifier notification.Notifier
-			switch d.Type {
-			case "email":
-				notifier = &notification.Email{To: d.Target}
-			case "sms":
-				notifier = &notification.SMS{To: d.Target}
+			// Send notification using relevant notifier if any...
+			if d.Status == true {
+				continue
 			}
-
-			if notifier != nil {
+			if notifier := notifierFactory(d.Type, d.Target); notifier != nil {
 				err = notifier.Notify(notification.NotificationType(d.Ntype), d.Subject, d.Body)
-				if err != nil {
-					log.Println(color.HiRedString("error:"), err.Error())
+				if err == nil {
+					done = append(done, &d)
+				} else {
 					retry = append(retry, &d)
-					continue
+					log.Println(color.HiRedString("error:"), err.Error())
 				}
 			}
-			done = append(done, &d)
+
 		}
 		rows.Close()
 
 		time.Sleep(500 * time.Millisecond)
 
-		tx, err := db.Begin()
-		if err != nil {
-			panic(err)
-		}
-		for _, r := range retry {
-			r.Attempt++
+		markItems(done, true)
+		markItems(retry, false)
 
-			_, err = tx.Exec(`
-UPDATE delivery
-SET status = ?,
-	attempt = attempt + 1
-WHERE id = ?;
-			`, false, d.Id)
-			if err != nil {
-				panic(err)
-			}
-		}
-
-		for _, d := range done {
-			// d.Attempt++
-
-			_, err = tx.Exec(`
-UPDATE delivery
-SET status = ?,
-	attempt = attempt + 1
-WHERE id = ?;
-			`, true, d.Id)
-			if err != nil {
-				panic(err)
-			}
-		}
-		tx.Commit()
+		time.Sleep(500 * time.Millisecond)
 	}
+}
+
+func markItems(items []*Delivery, status bool) {
+	stmt, err := db.Prepare(`
+	UPDATE delivery
+	   SET attempt = attempt + 1,
+		   status = ?
+	 WHERE id = ?
+	   AND status = false;`)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, item := range items {
+		_, err := stmt.Exec(status, item.Id)
+		if err != nil {
+			log.Println("ERROR", err)
+			continue
+		}
+	}
+}
+
+func notifierFactory(typ string, target string) notification.Notifier {
+	var notifier notification.Notifier
+	switch typ {
+	case "email":
+		notifier = &notification.Email{To: target}
+	case "sms":
+		notifier = &notification.SMS{To: target}
+	}
+	return notifier
 }
