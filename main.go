@@ -70,10 +70,10 @@ func setupRouter(dsn string) (*http.ServeMux, *sql.DB) {
 	mux.HandleFunc("GET /notifications/status", func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(`
 SELECT n.id,
-       n.type,
+       n.type AS ntype,
        n.subject,
        n.body,
-       d.type AS dtype,
+       d.type,
        d.uid,
        d.target,
        d.status,
@@ -86,11 +86,11 @@ INNER JOIN notifications n ON n.id = d.nid
 		}
 
 		type ListItem struct {
-			Id      int    `json:"notification_id"`
-			Type    int    `json:"type"`
+			Id      int    `json:"nid"`
+			Ntype   int    `json:"ntype"`
 			Subject string `json:"subject"`
 			Body    string `json:"body"`
-			Dtype   string `json:"dtype"`
+			Type    string `json:"type"`
 			Uid     int    `json:"uid"`
 			Target  string `json:"target"`
 			Status  bool   `json:"status"`
@@ -100,7 +100,7 @@ INNER JOIN notifications n ON n.id = d.nid
 		list := []ListItem{}
 		for rows.Next() {
 			row := ListItem{}
-			err = rows.Scan(&row.Id, &row.Type, &row.Subject, &row.Body, &row.Dtype, &row.Uid, &row.Target, &row.Status, &row.Attempt)
+			err = rows.Scan(&row.Id, &row.Ntype, &row.Subject, &row.Body, &row.Type, &row.Uid, &row.Target, &row.Status, &row.Attempt)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
