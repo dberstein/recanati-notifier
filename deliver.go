@@ -37,8 +37,11 @@ func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 	if err != nil {
 		panic(err)
 	}
+	defer stmtDeliverSelect.Close()
 
 	for {
+		time.Sleep(500 * time.Millisecond)
+
 		rows, err := stmtDeliverSelect.Query(false, maxFailedAttempts)
 		if err != nil {
 			log.Println("ERROR", err)
@@ -46,7 +49,7 @@ func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 		}
 
 		// Process item and store as `done` or `retry`...
-		d, done, retry := Delivery{}, []*Delivery{}, []*Delivery{}
+		d, done, retry := Delivery{}, []int{}, []int{}
 		for rows.Next() {
 			err := rows.Scan(&d.Id, &d.Ntype, &d.Type, &d.Attempt, &d.Target, &d.Subject, &d.Body, &d.Status)
 			if err != nil {
@@ -61,9 +64,9 @@ func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 			if notifier := notifierFactory(d.Type, d.Target); notifier != nil {
 				err = notifier.Notify(notification.NotificationType(d.Ntype), d.Subject, d.Body)
 				if err == nil {
-					done = append(done, &d)
+					done = append(done, d.Id)
 				} else {
-					retry = append(retry, &d)
+					retry = append(retry, d.Id)
 					log.Println(color.HiRedString("error:"), err.Error())
 				}
 			}
@@ -71,16 +74,12 @@ func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 		}
 		rows.Close()
 
-		time.Sleep(500 * time.Millisecond)
-
 		markItems(done, true)
 		markItems(retry, false)
-
-		time.Sleep(500 * time.Millisecond)
 	}
 }
 
-func markItems(items []*Delivery, status bool) {
+func markItems(items []int, status bool) {
 	stmt, err := db.Prepare(`
 	UPDATE delivery
 	   SET attempt = attempt + 1,
@@ -91,8 +90,8 @@ func markItems(items []*Delivery, status bool) {
 		panic(err)
 	}
 
-	for _, item := range items {
-		_, err := stmt.Exec(status, item.Id)
+	for _, id := range items {
+		_, err := stmt.Exec(status, id)
 		if err != nil {
 			log.Println("ERROR", err)
 			continue
