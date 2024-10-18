@@ -21,8 +21,13 @@ type Delivery struct {
 	Status  bool   `json:"status"`
 }
 
+type DeliveryStatus struct {
+	Id     int
+	Status bool
+}
+
 func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
-	stmtDeliverSelect, err := db.Prepare(`
+	stmt, err := db.Prepare(`
     SELECT d.id,
 		   d.ntype,
 		   d.type,
@@ -37,20 +42,22 @@ func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 	if err != nil {
 		panic(err)
 	}
-	defer stmtDeliverSelect.Close()
+	defer stmt.Close()
 
 	for {
 		time.Sleep(500 * time.Millisecond)
 
-		rows, err := stmtDeliverSelect.Query(false, maxFailedAttempts)
+		rows, err := stmt.Query(false, maxFailedAttempts)
 		if err != nil {
 			log.Println("ERROR", err)
 			continue
 		}
 
 		// Process item and store as `done` or `retry`...
-		d, done, retry := Delivery{}, []int{}, []int{}
+		dones := []*DeliveryStatus{}
+		d := Delivery{}
 		for rows.Next() {
+			done := DeliveryStatus{}
 			err := rows.Scan(&d.Id, &d.Ntype, &d.Type, &d.Attempt, &d.Target, &d.Subject, &d.Body, &d.Status)
 			if err != nil {
 				log.Println("ERROR", err)
@@ -58,28 +65,27 @@ func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 			}
 
 			// Send notification using relevant notifier if any...
-			if d.Status == true {
-				continue
-			}
 			if notifier := notifierFactory(d.Type, d.Target); notifier != nil {
 				err = notifier.Notify(notification.NotificationType(d.Ntype), d.Subject, d.Body)
+				done.Id = d.Id
 				if err == nil {
-					done = append(done, d.Id)
+					done.Status = true
 				} else {
-					retry = append(retry, d.Id)
 					log.Println(color.HiRedString("error:"), err.Error())
 				}
+				dones = append(dones, &done)
 			}
 
 		}
 		rows.Close()
 
-		markItems(done, true)
-		markItems(retry, false)
+		go func() {
+			markItems(dones)
+		}()
 	}
 }
 
-func markItems(items []int, status bool) {
+func markItems(items []*DeliveryStatus) {
 	stmt, err := db.Prepare(`
 	UPDATE delivery
 	   SET attempt = attempt + 1,
@@ -90,8 +96,8 @@ func markItems(items []int, status bool) {
 		panic(err)
 	}
 
-	for _, id := range items {
-		_, err := stmt.Exec(status, id)
+	for _, item := range items {
+		_, err := stmt.Exec(item.Status, item.Id)
 		if err != nil {
 			log.Println("ERROR", err)
 			continue
