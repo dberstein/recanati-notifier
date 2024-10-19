@@ -9,90 +9,84 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/dberstein/recanati-notifier/delivery"
 	httplog "github.com/dberstein/recanati-notifier/httplog"
-	"github.com/dberstein/recanati-notifier/medium"
 	"github.com/dberstein/recanati-notifier/notification"
-	"github.com/dberstein/recanati-notifier/user"
 
 	"github.com/fatih/color"
-	_ "github.com/mattn/go-sqlite3" // Import driver (blank import for registration)
 )
 
-var users []user.User
 var db *sql.DB
 
-func ensureSchema(db *sql.DB) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-
-	if _, err := tx.Exec(`
-CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY, type INTEGER NOT NULL DEFAULT 0, content TEXT);
-CREATE TABLE IF NOT EXISTS mediums (id INTEGER PRIMARY KEY, notification_id INTEGER NOT NULL, user_id INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS user_medium (notification_id INTEGER NOT NULL, user_id INTEGER NOT NULL, medium_id INTEGER NOT NULL, content TEXT);
-CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name string);
-INSERT INTO users (id, name) VALUES (1, "first");
-INSERT INTO users (id, name) VALUES (2, "second");
-INSERT INTO users (id, name) VALUES (3, "third");
-	`); err != nil {
-		return err
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		return err
-	}
-
-	return nil
+type UserPreferences struct {
+	UserID    int64 `json:"user_id"`
+	Frequency int   `json:"frequency"`
+	Mediums   []struct {
+		Type   string `json:"type"`
+		Target string `json:"target"`
+	} `json:"mediums"`
 }
 
-func NewDb(dsn string) *sql.DB {
-	db, err := sql.Open("sqlite3", dsn)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err = db.Ping(); err != nil {
-		log.Fatal(err)
-	}
-
-	err = ensureSchema(db)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return db
-}
-
-func init() {
-	users = []user.User{
-		{Id: 1, Mediums: []medium.Medium{medium.NewEmail("example@example.com")}},
-		{Id: 2, Mediums: []medium.Medium{medium.NewEmail("other@example.com"), medium.NewSMS("972 12345678")}},
-		{Id: 3, Mediums: []medium.Medium{medium.NewSMS("972 87654321")}},
-	}
-}
-
-type ListItem struct {
-	Id      int    `json:"id"`
-	Typ     int    `json:"type"`
-	Content string `json:"content"`
-}
-
-func setupRouter(dsn string, ch chan *delivery.Delivery) *http.ServeMux {
+func setupRouter(dsn string) (*http.ServeMux, *sql.DB) {
 	db = NewDb(dsn)
 	mux := http.NewServeMux()
 
 	// Update user notification preferences (which channels to use and frequency)
 	mux.HandleFunc("POST /users/preferences", func(w http.ResponseWriter, r *http.Request) {
+		usrpref := &UserPreferences{}
+		err := json.NewDecoder(r.Body).Decode(usrpref)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if usrpref.UserID == 0 {
+			http.Error(w, "missing user_id", http.StatusBadRequest)
+			return
+		}
+
+		if usrpref.Frequency == 0 {
+			http.Error(w, "missing frequency", http.StatusBadRequest)
+			return
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			panic(err)
+		}
+
+		_, err = tx.Exec("UPDATE users SET frequency = ?", usrpref.Frequency)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		_, err = tx.Exec("DELETE FROM mediums WHERE uid = ?", usrpref.UserID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		for _, m := range usrpref.Mediums {
+			_, err = tx.Exec("INSERT INTO mediums (uid, type, target) VALUES (?, ?, ?)", usrpref.UserID, m.Type, m.Target)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		err = tx.Commit()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		err = json.NewEncoder(w).Encode(usrpref)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	})
 
 	// Send a notification to users based on their preferences.
-	stmtInsertNotification, err := db.Prepare(`INSERT INTO notifications (type, content) VALUES (?, ?)`)
-	if err != nil {
-		panic(err)
-	}
 	mux.HandleFunc("POST /notifications", func(w http.ResponseWriter, r *http.Request) {
 		nr := &notification.Request{}
 		err := json.NewDecoder(r.Body).Decode(nr)
@@ -101,46 +95,73 @@ func setupRouter(dsn string, ch chan *delivery.Delivery) *http.ServeMux {
 			return
 		}
 
-		if nr.Content == "" {
-			http.Error(w, "missing content", http.StatusBadRequest)
+		if nr.Subject == "" {
+			http.Error(w, "missing subject", http.StatusBadRequest)
 			return
 		}
 
-		fmt.Println("*", nr.String())
-		_, err = stmtInsertNotification.Exec(nr.Type, nr.Content)
+		if nr.Body == "" {
+			http.Error(w, "missing body", http.StatusBadRequest)
+			return
+		}
+
+		tx, err := db.Begin()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		res, err := tx.Exec("INSERT INTO notifications (type, subject, body) VALUES (?, ?, ?)", nr.Type, nr.Subject, nr.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		tx.Commit()
 
-		// Send notification message to each user...
-		msg := notification.New(nr.Type, &nr.Content)
-		for _, usr := range users {
-			go func(u *user.User, m *notification.Message) {
-				ch <- delivery.New(u, m)
-			}(&usr, msg)
+		_, err = res.LastInsertId()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 	})
 
-	stmSelectStatusNotification, err := db.Prepare(`SELECT n.id, n.type, n.content FROM notifications n`)
-	if err != nil {
-		panic(err)
-	}
-
 	// Retrieve the status of sent notifications (success, failure, retry attempts).
 	mux.HandleFunc("GET /notifications/status", func(w http.ResponseWriter, r *http.Request) {
-		rows, err := stmSelectStatusNotification.Query()
+		rows, err := db.Query(`
+SELECT n.id,
+       n.type AS ntype,
+       n.subject,
+       n.body,
+       d.type,
+       d.uid,
+       d.target,
+       d.status,
+       d.attempt
+FROM delivery d
+INNER JOIN notifications n ON n.id = d.nid
+		`)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		type ListItem struct {
+			Id      int    `json:"nid"`
+			Ntype   int    `json:"ntype"`
+			Subject string `json:"subject"`
+			Body    string `json:"body"`
+			Type    string `json:"type"`
+			Uid     int    `json:"uid"`
+			Target  string `json:"target"`
+			Status  bool   `json:"status"`
+			Attempt int    `json:"attempt"`
 		}
 
 		list := []ListItem{}
 		for rows.Next() {
 			row := ListItem{}
-			err = rows.Scan(&row.Id, &row.Typ, &row.Content)
+			err = rows.Scan(&row.Id, &row.Ntype, &row.Subject, &row.Body, &row.Type, &row.Uid, &row.Target, &row.Status, &row.Attempt)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -157,21 +178,18 @@ func setupRouter(dsn string, ch chan *delivery.Delivery) *http.ServeMux {
 		}
 	})
 
-	return mux
+	return mux, db
 }
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile | log.Lmicroseconds)
+
 	addr := flag.String("addr", ":8080", "Listen address")
+	dsn := flag.String("dsn", ":memory:", "Sqlite database DSN")
 	flag.Parse()
 
-	ch := make(chan *delivery.Delivery)
-	go func(c chan *delivery.Delivery) {
-		for {
-			d := <-c
-			d.Notify(c)
-		}
-	}(ch)
-
+	mux, db := setupRouter(*dsn)
+	entryPoint := httplog.LogRequest(mux)
 	srv := &http.Server{
 		Addr:              *addr,
 		IdleTimeout:       0,
@@ -179,8 +197,10 @@ func main() {
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		MaxHeaderBytes:    1 << 20, // 1MB
-		Handler:           httplog.LogRequest(setupRouter(":memory:", ch)),
+		Handler:           entryPoint,
 	}
+
+	go deliverInLoop(db, 3)
 
 	fmt.Println(color.HiGreenString("Listening:"), *addr)
 	log.Fatal(srv.ListenAndServe())

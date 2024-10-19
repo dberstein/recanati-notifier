@@ -1,4 +1,4 @@
-SRC := main.go
+SRC := *.go
 BIN := notifierd
 
 run:
