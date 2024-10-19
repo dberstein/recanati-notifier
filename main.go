@@ -44,10 +44,22 @@ func setupRouter(dsn string) (*http.ServeMux, *sql.DB) {
 			return
 		}
 
+		if usrpref.Frequency == 0 {
+			http.Error(w, "missing frequency", http.StatusBadRequest)
+			return
+		}
+
 		tx, err := db.Begin()
 		if err != nil {
 			panic(err)
 		}
+
+		_, err = tx.Exec("UPDATE users SET frequency = ?", usrpref.Frequency)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		_, err = tx.Exec("DELETE FROM mediums WHERE uid = ?", usrpref.UserID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

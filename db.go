@@ -16,8 +16,9 @@ func ensureSchema(db *sql.DB) error {
 	if _, err := tx.Exec(`
 -- Create tables and indexes
 CREATE TABLE IF NOT EXISTS users (
-	id   INTEGER PRIMARY KEY,
-	name TEXT
+	id        INTEGER PRIMARY KEY,
+	name      TEXT,
+	frequency INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS mediums (

@@ -54,7 +54,7 @@ func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 			continue
 		}
 
-		// Process item and store its id and status...
+		// Process item and store its id and delivery status for stats or retry...
 		dones := []*DeliveryStatus{}
 		d := Delivery{}
 		for rows.Next() {
@@ -67,11 +67,11 @@ func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 			// Send notification using relevant notifier if any...
 			if n := notifier.Factory(d.Type, d.Target); n != nil {
 				err = n.Notify(notification.NotificationType(d.Ntype), d.Subject, d.Body)
-				done := DeliveryStatus{Id: d.Id, Status: err == nil}
+				ds := DeliveryStatus{Id: d.Id, Status: err == nil}
 				if err != nil {
 					log.Println(color.HiRedString("error:"), err.Error())
 				}
-				dones = append(dones, &done)
+				dones = append(dones, &ds)
 			}
 
 		}
