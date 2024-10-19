@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dberstein/recanati-notifier/notification"
+	"github.com/dberstein/recanati-notifier/notification/notifier"
 
 	"github.com/fatih/color"
 )
@@ -22,8 +23,8 @@ type Delivery struct {
 }
 
 type DeliveryStatus struct {
-	Id     int
-	Status bool
+	Id     int  `json:"id"`
+	Status bool `json:"status"`
 }
 
 func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
@@ -53,11 +54,10 @@ func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 			continue
 		}
 
-		// Process item and store as `done` or `retry`...
+		// Process item and store its id and status...
 		dones := []*DeliveryStatus{}
 		d := Delivery{}
 		for rows.Next() {
-			done := DeliveryStatus{}
 			err := rows.Scan(&d.Id, &d.Ntype, &d.Type, &d.Attempt, &d.Target, &d.Subject, &d.Body, &d.Status)
 			if err != nil {
 				log.Println("ERROR", err)
@@ -65,12 +65,10 @@ func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 			}
 
 			// Send notification using relevant notifier if any...
-			if notifier := notifierFactory(d.Type, d.Target); notifier != nil {
+			if notifier := notifier.Factory(d.Type, d.Target); notifier != nil {
 				err = notifier.Notify(notification.NotificationType(d.Ntype), d.Subject, d.Body)
-				done.Id = d.Id
-				if err == nil {
-					done.Status = true
-				} else {
+				done := DeliveryStatus{Id: d.Id, Status: err == nil}
+				if err != nil {
 					log.Println(color.HiRedString("error:"), err.Error())
 				}
 				dones = append(dones, &done)
@@ -103,15 +101,4 @@ func markItems(items []*DeliveryStatus) {
 			continue
 		}
 	}
-}
-
-func notifierFactory(typ string, target string) notification.Notifier {
-	var notifier notification.Notifier
-	switch typ {
-	case "email":
-		notifier = &notification.Email{To: target}
-	case "sms":
-		notifier = &notification.SMS{To: target}
-	}
-	return notifier
 }
