@@ -21,14 +21,12 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS mediums (
-	id     INTEGER PRIMARY KEY,
 	uid    INTEGER NOT NULL,
 	type   TEXT NOT NULL,
 	target TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_medium_type ON mediums (
-    type,
+CREATE INDEX IF NOT EXISTS idx_medium_uid ON mediums (
 	uid
 );
 

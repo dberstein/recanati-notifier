@@ -17,12 +17,61 @@ import (
 
 var db *sql.DB
 
+type UserPreferences struct {
+	UserID    int64 `json:"user_id"`
+	Frequency int   `json:"frequency"`
+	Mediums   []struct {
+		Type   string `json:"type"`
+		Target string `json:"target"`
+	} `json:"mediums"`
+}
+
 func setupRouter(dsn string) (*http.ServeMux, *sql.DB) {
 	db = NewDb(dsn)
 	mux := http.NewServeMux()
 
 	// Update user notification preferences (which channels to use and frequency)
 	mux.HandleFunc("POST /users/preferences", func(w http.ResponseWriter, r *http.Request) {
+		usrpref := &UserPreferences{}
+		err := json.NewDecoder(r.Body).Decode(usrpref)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if usrpref.UserID == 0 {
+			http.Error(w, "missing user_id", http.StatusBadRequest)
+			return
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			panic(err)
+		}
+		_, err = tx.Exec("DELETE FROM mediums WHERE uid = ?", usrpref.UserID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		for _, m := range usrpref.Mediums {
+			_, err = tx.Exec("INSERT INTO mediums (uid, type, target) VALUES (?, ?, ?)", usrpref.UserID, m.Type, m.Target)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		err = tx.Commit()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		err = json.NewEncoder(w).Encode(usrpref)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	})
 
 	// Send a notification to users based on their preferences.

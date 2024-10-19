@@ -75,15 +75,21 @@ func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 			}
 
 		}
-		rows.Close()
+		err = rows.Close()
+		if err != nil {
+			log.Println("ERROR", err)
+		}
 
 		go func() {
-			markItems(dones)
+			err := markItems(dones)
+			if err != nil {
+				log.Println("ERROR", err)
+			}
 		}()
 	}
 }
 
-func markItems(items []*DeliveryStatus) {
+func markItems(items []*DeliveryStatus) error {
 	stmt, err := db.Prepare(`
 	UPDATE delivery
 	   SET attempt = attempt + 1,
@@ -91,7 +97,7 @@ func markItems(items []*DeliveryStatus) {
 	 WHERE id = ?
 	   AND status = false;`)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	for _, item := range items {
@@ -101,4 +107,5 @@ func markItems(items []*DeliveryStatus) {
 			continue
 		}
 	}
+	return nil
 }
