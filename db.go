@@ -46,6 +46,8 @@ CREATE INDEX IF NOT EXISTS idx_notification_type ON notifications (
 CREATE TABLE IF NOT EXISTS delivery (
 	id      INTEGER PRIMARY KEY,
 	ts      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	hour    INTEGER,
+	day     INTEGER,
 	nid     INTEGER NOT NULL,
 	uid     INTEGER NOT NULL,
 	type    TEXT,
@@ -54,17 +56,31 @@ CREATE TABLE IF NOT EXISTS delivery (
 	attempt INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE INDEX IF NOT EXISTS idx_nid_uid ON delivery (
+    nid, uid
+);
+
+CREATE INDEX IF NOT EXISTS idx_hour ON delivery (
+    hour
+);
+
+CREATE INDEX IF NOT EXISTS idx_day ON delivery (
+    day
+);
+
 -- Create trigger that upon new notification inserts deliveries per user/medium
 CREATE TRIGGER IF NOT EXISTS insert_notification AFTER
 INSERT ON notifications
 BEGIN
-	INSERT INTO delivery (nid, UID, TYPE, target)
+	INSERT INTO delivery (nid, uid, type, target, hour, day)
 	SELECT new.id,
-		u.id,
-		m.type,
-		m.target
-	FROM mediums m
-    INNER JOIN users u ON u.id = m.uid;
+           u.id,
+           m.type,
+           m.target,
+           CAST(UNIXEPOCH(new.ts) / 3600 AS int),
+           CAST(UNIXEPOCH(new.ts) / 86400 AS int)
+      FROM mediums m
+INNER JOIN users u ON u.id = m.uid;
 END;
 
 -- Create view that relates notifications with deliveries

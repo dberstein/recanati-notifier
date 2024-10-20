@@ -149,22 +149,25 @@ INNER JOIN notifications n ON n.id = d.nid
 		}
 
 		type ListItem struct {
+			Id      int    `json:"id"`
 			Nid     int    `json:"nid"`
 			Ntype   int    `json:"ntype"`
-			Id      int    `json:"id"`
 			Type    string `json:"type"`
 			Uid     int    `json:"uid"`
 			Target  string `json:"target"`
-			Subject string `json:"subject"`
-			Body    string `json:"body"`
 			Status  bool   `json:"status"`
 			Attempt int    `json:"attempt"`
+			Subject string `json:"subject"`
+			Body    string `json:"body"`
 		}
 
 		list := []ListItem{}
 		for rows.Next() {
 			row := ListItem{}
-			err = rows.Scan(&row.Id, &row.Nid, &row.Ntype, &row.Subject, &row.Body, &row.Type, &row.Uid, &row.Target, &row.Status, &row.Attempt)
+			err = rows.Scan(
+				&row.Id, &row.Nid, &row.Ntype, &row.Subject, &row.Body, &row.Type, &row.Uid,
+				&row.Target, &row.Status, &row.Attempt,
+			)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
