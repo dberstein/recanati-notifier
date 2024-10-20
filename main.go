@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/dberstein/recanati-notifier/deliver"
 	httplog "github.com/dberstein/recanati-notifier/httplog"
 	"github.com/dberstein/recanati-notifier/notification"
 
@@ -193,7 +194,9 @@ func main() {
 		Handler:           entryPoint,
 	}
 
-	go deliverInLoop(db, 3)
+	go deliver.Immediate(db, 3)
+	go deliver.Hourly(db, 3)
+	go deliver.Daily(db, 3)
 
 	fmt.Println(color.HiGreenString("Listening:"), *addr)
 	log.Fatal(srv.ListenAndServe())

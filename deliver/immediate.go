@@ -1,4 +1,4 @@
-package main
+package deliver
 
 import (
 	"database/sql"
@@ -27,7 +27,7 @@ type DeliveryStatus struct {
 	Status bool `json:"status"`
 }
 
-func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
+func Immediate(db *sql.DB, maxFailedAttempts int) {
 	stmt, err := db.Prepare(`
     SELECT d.id,
 		   d.ntype,
