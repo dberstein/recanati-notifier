@@ -26,8 +26,7 @@ type UserPreferences struct {
 	} `json:"mediums"`
 }
 
-func setupRouter(dsn string) (*http.ServeMux, *sql.DB) {
-	db = NewDb(dsn)
+func setupRouter(db *sql.DB) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// Update user notification preferences (which channels to use and frequency)
@@ -44,22 +43,22 @@ func setupRouter(dsn string) (*http.ServeMux, *sql.DB) {
 			return
 		}
 
-		if usrpref.Frequency == 0 {
-			http.Error(w, "missing frequency", http.StatusBadRequest)
-			return
-		}
-
+		// Start transaction
 		tx, err := db.Begin()
 		if err != nil {
 			panic(err)
 		}
 
-		_, err = tx.Exec("UPDATE users SET frequency = ?", usrpref.Frequency)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		// Frequency should be > 0 thus only update transaction if field present...
+		if usrpref.Frequency != 0 {
+			_, err = tx.Exec("UPDATE users SET frequency = ?", usrpref.Frequency)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 
+		// Delete all mediums then insert sent mediums...
 		_, err = tx.Exec("DELETE FROM mediums WHERE uid = ?", usrpref.UserID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -72,6 +71,8 @@ func setupRouter(dsn string) (*http.ServeMux, *sql.DB) {
 				return
 			}
 		}
+
+		// Commit transaction
 		err = tx.Commit()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -130,16 +131,17 @@ func setupRouter(dsn string) (*http.ServeMux, *sql.DB) {
 	// Retrieve the status of sent notifications (success, failure, retry attempts).
 	mux.HandleFunc("GET /notifications/status", func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(`
-SELECT n.id,
-       n.type AS ntype,
-       n.subject,
-       n.body,
-       d.type,
-       d.uid,
-       d.target,
-       d.status,
-       d.attempt
-FROM delivery d
+    SELECT d.id,
+           n.id AS nid,
+           n.type AS ntype,
+           n.subject,
+           n.body,
+           d.type,
+           d.uid,
+           d.target,
+           d.status,
+           d.attempt
+      FROM delivery d
 INNER JOIN notifications n ON n.id = d.nid
 		`)
 		if err != nil {
@@ -147,13 +149,14 @@ INNER JOIN notifications n ON n.id = d.nid
 		}
 
 		type ListItem struct {
-			Id      int    `json:"nid"`
+			Nid     int    `json:"nid"`
 			Ntype   int    `json:"ntype"`
-			Subject string `json:"subject"`
-			Body    string `json:"body"`
+			Id      int    `json:"id"`
 			Type    string `json:"type"`
 			Uid     int    `json:"uid"`
 			Target  string `json:"target"`
+			Subject string `json:"subject"`
+			Body    string `json:"body"`
 			Status  bool   `json:"status"`
 			Attempt int    `json:"attempt"`
 		}
@@ -161,7 +164,7 @@ INNER JOIN notifications n ON n.id = d.nid
 		list := []ListItem{}
 		for rows.Next() {
 			row := ListItem{}
-			err = rows.Scan(&row.Id, &row.Ntype, &row.Subject, &row.Body, &row.Type, &row.Uid, &row.Target, &row.Status, &row.Attempt)
+			err = rows.Scan(&row.Id, &row.Nid, &row.Ntype, &row.Subject, &row.Body, &row.Type, &row.Uid, &row.Target, &row.Status, &row.Attempt)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -178,7 +181,7 @@ INNER JOIN notifications n ON n.id = d.nid
 		}
 	})
 
-	return mux, db
+	return mux
 }
 
 func main() {
@@ -188,8 +191,10 @@ func main() {
 	dsn := flag.String("dsn", ":memory:", "Sqlite database DSN")
 	flag.Parse()
 
-	mux, db := setupRouter(*dsn)
+	db = NewDb(*dsn)
+	mux := setupRouter(db)
 	entryPoint := httplog.LogRequest(mux)
+
 	srv := &http.Server{
 		Addr:              *addr,
 		IdleTimeout:       0,
