@@ -49,3 +49,16 @@ func (r *Request) String() string {
 type Notifier interface {
 	Notify(NotificationType, string, string) error
 }
+
+type ListItem struct {
+	Id      int    `json:"id"`
+	Nid     int    `json:"nid"`
+	Ntype   int    `json:"ntype"`
+	Type    string `json:"type"`
+	Uid     int    `json:"uid"`
+	Target  string `json:"target"`
+	Status  bool   `json:"status"`
+	Attempt int    `json:"attempt"`
+	Subject string `json:"subject"`
+	Body    string `json:"body"`
+}

@@ -81,7 +81,7 @@ func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 		}
 
 		go func() {
-			err := markItems(dones)
+			err := markItems(db, dones)
 			if err != nil {
 				log.Println("ERROR", err)
 			}
@@ -89,7 +89,7 @@ func deliverInLoop(db *sql.DB, maxFailedAttempts int) {
 	}
 }
 
-func markItems(items []*DeliveryStatus) error {
+func markItems(db *sql.DB, items []*DeliveryStatus) error {
 	stmt, err := db.Prepare(`
 	UPDATE delivery
 	   SET attempt = attempt + 1,

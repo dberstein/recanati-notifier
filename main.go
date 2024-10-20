@@ -15,8 +15,6 @@ import (
 	"github.com/fatih/color"
 )
 
-var db *sql.DB
-
 type UserPreferences struct {
 	UserID    int64 `json:"user_id"`
 	Frequency int   `json:"frequency"`
@@ -148,22 +146,9 @@ INNER JOIN notifications n ON n.id = d.nid
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
-		type ListItem struct {
-			Id      int    `json:"id"`
-			Nid     int    `json:"nid"`
-			Ntype   int    `json:"ntype"`
-			Type    string `json:"type"`
-			Uid     int    `json:"uid"`
-			Target  string `json:"target"`
-			Status  bool   `json:"status"`
-			Attempt int    `json:"attempt"`
-			Subject string `json:"subject"`
-			Body    string `json:"body"`
-		}
-
-		list := []ListItem{}
+		list := []notification.ListItem{}
 		for rows.Next() {
-			row := ListItem{}
+			row := notification.ListItem{}
 			err = rows.Scan(
 				&row.Id, &row.Nid, &row.Ntype, &row.Subject, &row.Body, &row.Type, &row.Uid,
 				&row.Target, &row.Status, &row.Attempt,
@@ -194,7 +179,7 @@ func main() {
 	dsn := flag.String("dsn", ":memory:", "Sqlite database DSN")
 	flag.Parse()
 
-	db = NewDb(*dsn)
+	db := NewDb(*dsn)
 	mux := setupRouter(db)
 	entryPoint := httplog.LogRequest(mux)
 
