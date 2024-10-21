@@ -12,6 +12,32 @@ import (
 	"github.com/fatih/color"
 )
 
+var fgColorRed *color.Color
+var bgWhiteFgColorRed *color.Color
+var privateIPBlocks []*net.IPNet
+
+func init() {
+	fgColorRed = color.New(color.FgRed)
+	bgWhiteFgColorRed = fgColorRed.Add(color.BgWhite)
+
+	for _, cidr := range []string{
+		"127.0.0.0/8",    // IPv4 loopback
+		"10.0.0.0/8",     // RFC1918
+		"172.16.0.0/12",  // RFC1918
+		"192.168.0.0/16", // RFC1918
+		"169.254.0.0/16", // RFC3927 link-local
+		"::1/128",        // IPv6 loopback
+		"fe80::/10",      // IPv6 link-local
+		"fc00::/7",       // IPv6 unique local addr
+	} {
+		_, block, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(fmt.Errorf("parse error on %q: %v", cidr, err))
+		}
+		privateIPBlocks = append(privateIPBlocks, block)
+	}
+}
+
 type statusRecorder struct {
 	http.ResponseWriter
 	statusCode int
@@ -23,19 +49,16 @@ func (rec *statusRecorder) WriteHeader(statusCode int) {
 }
 
 func LogRequest(h http.Handler) http.Handler {
-	fgColorRed := color.New(color.FgRed)
-	bgWhiteFgColorRed := fgColorRed.Add(color.BgWhite)
-
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		recorder := &statusRecorder{w, 200}
-		h.ServeHTTP(recorder, r)
+		rec := &statusRecorder{w, 200}
+		h.ServeHTTP(rec, r)
 
 		log.Print(strings.Join([]string{
 			color.MagentaString(r.Host),
 			bgWhiteFgColorRed.Sprint(getRemoteAddress(r)),
-			getColoredStatusCode(recorder.statusCode),
+			getColoredStatusCode(rec.statusCode),
 			r.Method,
 			"\"" + color.CyanString(r.URL.String()) + "\"",
 			"\"" + color.CyanString(r.Header.Get("User-Agent")) + "\"",
@@ -64,27 +87,6 @@ func ipAddrFromRemoteAddr(s string) string {
 		return s
 	}
 	return s[:idx]
-}
-
-var privateIPBlocks []*net.IPNet
-
-func init() {
-	for _, cidr := range []string{
-		"127.0.0.0/8",    // IPv4 loopback
-		"10.0.0.0/8",     // RFC1918
-		"172.16.0.0/12",  // RFC1918
-		"192.168.0.0/16", // RFC1918
-		"169.254.0.0/16", // RFC3927 link-local
-		"::1/128",        // IPv6 loopback
-		"fe80::/10",      // IPv6 link-local
-		"fc00::/7",       // IPv6 unique local addr
-	} {
-		_, block, err := net.ParseCIDR(cidr)
-		if err != nil {
-			panic(fmt.Errorf("parse error on %q: %v", cidr, err))
-		}
-		privateIPBlocks = append(privateIPBlocks, block)
-	}
 }
 
 func isPrivateIP(ip net.IP) bool {

@@ -145,6 +145,7 @@ INNER JOIN notifications n ON n.id = d.nid
 		`)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		list := []notification.ListItem{}
@@ -194,9 +195,7 @@ func main() {
 		Handler:           entryPoint,
 	}
 
-	go deliver.Immediate(db, 3)
-	go deliver.Hourly(db, 3)
-	go deliver.Daily(db, 3)
+	go deliver.Loop(db, 3)
 
 	fmt.Println(color.HiGreenString("Listening:"), *addr)
 	log.Fatal(srv.ListenAndServe())

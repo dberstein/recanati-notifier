@@ -94,7 +94,9 @@ SELECT d.id,
        n.body,
 	   n.id AS nid,
        d.uid,
-       d.status
+       d.status,
+       d.hour,
+       d.day
 FROM delivery d
 INNER JOIN notifications n ON n.id = d.nid;
 
