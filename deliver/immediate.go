@@ -60,7 +60,6 @@ INNER JOIN users u ON u.id = d.uid
 			}
 			dones = append(dones, &ds)
 		}
-
 	}
 	err = rows.Close()
 	if err != nil {

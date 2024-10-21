@@ -30,9 +30,8 @@ func setupRouter(db *sql.DB) *http.ServeMux {
 
 	// Update user notification preferences (which channels to use and frequency)
 	mux.HandleFunc("POST /users/preferences", func(w http.ResponseWriter, r *http.Request) {
-		usrpref := &UserPreferences{}
-		err := json.NewDecoder(r.Body).Decode(usrpref)
-		if err != nil {
+		var usrpref UserPreferences
+		if err := json.NewDecoder(r.Body).Decode(&usrpref); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -88,9 +87,8 @@ func setupRouter(db *sql.DB) *http.ServeMux {
 
 	// Send a notification to users based on their preferences.
 	mux.HandleFunc("POST /notifications", func(w http.ResponseWriter, r *http.Request) {
-		nr := &notification.Request{}
-		err := json.NewDecoder(r.Body).Decode(nr)
-		if err != nil {
+		var nr notification.Request
+		if err := json.NewDecoder(r.Body).Decode(&nr); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -182,9 +180,15 @@ func main() {
 	flag.Parse()
 
 	db := NewDb(*dsn)
-	mux := setupRouter(db)
-	entryPoint := httplog.LogRequest(mux)
+	defer db.Close()
 
+	mux := setupRouter(db)
+
+	// Set connection pool parameters
+	db.SetMaxOpenConns(25) // SQLite supports limited concurrent writes
+	db.SetMaxIdleConns(5)
+
+	entryPoint := httplog.LogRequest(mux)
 	srv := &http.Server{
 		Addr:              *addr,
 		IdleTimeout:       0,
